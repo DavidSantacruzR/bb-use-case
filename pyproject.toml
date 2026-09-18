@@ -1,0 +1,23 @@
+[project]
+name = "blackblaze"
+version = "0.1.0"
+description = "Store a file in Backblaze B2 and attach an AI-generated description to it as metadata."
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi (>=0.141.1,<0.142.0)",
+    "uvicorn[standard] (>=0.53.0,<0.54.0)",
+    "python-multipart (>=0.0.32,<0.0.33)",
+    "b2sdk (>=2.13.0,<3.0.0)",
+    "anthropic (>=1.7.0,<2.0.0)",
+    "pydantic-settings (>=2.15.0,<3.0.0)",
+]
+
+[project.scripts]
+ingest = "blackblaze.cli:main"
+
+[tool.poetry]
+packages = [{ include = "blackblaze" }]
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
