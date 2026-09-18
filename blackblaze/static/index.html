@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blackblaze</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b66;
+    --line: #e4e4e0; --accent: #c1440e; --ok: #2f7d52; --warn: #8a6100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17171a; --panel: #1f1f23; --ink: #ececea; --muted: #9a9a95;
+      --line: #32323a; --accent: #e8703a; --ok: #6cc08b; --warn: #d8a93b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 16px; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 620px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -.01em; }
+  p.sub { margin: 0 0 28px; color: var(--muted); font-size: 14px; }
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: 12px; background: var(--panel);
+    padding: 44px 24px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); }
+  #drop strong { display: block; margin-bottom: 4px; }
+  #drop span { color: var(--muted); font-size: 13px; }
+  input[type=file] { display: none; }
+  .spinner {
+    width: 18px; height: 18px; border: 2px solid var(--line);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite; display: inline-block; vertical-align: -4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #status { margin-top: 20px; color: var(--muted); font-size: 14px; }
+  .card {
+    margin-top: 20px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden;
+  }
+  .card img { display: block; width: 100%; max-height: 340px; object-fit: contain; background: var(--bg); }
+  .card .body { padding: 16px 18px; }
+  .caption { font-size: 15px; margin: 0 0 12px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+  .badge { font-weight: 600; }
+  .badge.ok { color: var(--ok); }
+  .badge.warn { color: var(--warn); }
+  .err { color: var(--accent); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>blackblaze</h1>
+  <p class="sub">Store a file in Backblaze B2 and attach an AI description to it.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose or drop a file">
+    <strong>Drop a file here, or click to choose</strong>
+    <span>PNG, JPEG, or plain text &middot; up to 10&nbsp;MB</span>
+  </div>
+  <input type="file" id="picker" accept="image/png,image/jpeg,text/plain,.txt">
+
+  <div id="status" hidden></div>
+  <div id="result"></div>
+</main>
+
+<script>
+  const drop = document.getElementById("drop");
+  const picker = document.getElementById("picker");
+  const statusEl = document.getElementById("status");
+  const resultEl = document.getElementById("result");
+
+  drop.addEventListener("click", () => picker.click());
+  drop.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); }
+  });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+  });
+  picker.addEventListener("change", () => {
+    if (picker.files[0]) upload(picker.files[0]);
+  });
+
+  async function upload(file) {
+    resultEl.innerHTML = "";
+    statusEl.hidden = false;
+    statusEl.innerHTML = `<span class="spinner"></span> Storing and describing ${escapeHtml(file.name)}…`;
+
+    const body = new FormData();
+    body.append("file", file);
+
+    let response, payload;
+    try {
+      response = await fetch("/files", { method: "POST", body });
+      payload = await response.json();
+    } catch (error) {
+      statusEl.hidden = true;
+      resultEl.innerHTML = `<div class="card"><div class="body"><p class="err">Upload failed: ${escapeHtml(String(error))}</p></div></div>`;
+      return;
+    }
+
+    statusEl.hidden = true;
+
+    if (!response.ok) {
+      const detail = payload.detail ?? payload;
+      resultEl.innerHTML = `<div class="card"><div class="body">
+        <p class="err">${escapeHtml(detail.error ?? "Upload rejected")}</p>
+        ${detail.accepted ? `<p class="meta">Accepted: ${escapeHtml(detail.accepted.join(", "))}</p>` : ""}
+      </div></div>`;
+      return;
+    }
+
+    const isImage = /^image\//.test(file.type) || /\.(png|jpe?g)$/i.test(file.name);
+    const preview = isImage ? `<img src="${URL.createObjectURL(file)}" alt="">` : "";
+    const complete = payload.status === "complete";
+
+    resultEl.innerHTML = `<div class="card">
+      ${preview}
+      <div class="body">
+        <p class="caption">${payload.description ? escapeHtml(payload.description) : "<em>No description available.</em>"}</p>
+        ${payload.error ? `<p class="err">${escapeHtml(payload.error)}</p>` : ""}
+        <div class="meta">
+          <span class="badge ${complete ? "ok" : "warn"}">${escapeHtml(payload.status)}</span>
+          <span>${escapeHtml(payload.name)}</span>
+          <span>${formatBytes(payload.size)}</span>
+        </div>
+        <div class="meta" style="margin-top:6px"><code>${escapeHtml(payload.key)}</code></div>
+      </div>
+    </div>`;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+  }
+</script>
+</body>
+</html>
